@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Notch</title>
+<style>
+  :root {
+    --bg: #0b0b0c;
+    --ink: #f5f5f4;
+    --accent: #d97757;
+    --amber: #f2b252;
+    --green: #5dd39e;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    --ease-out: cubic-bezier(.2, .8, .2, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px 16px; gap: 22px;
+  }
+  button { font: inherit; color: inherit; }
+
+  /* ---------- stage scaling: the screen is designed at 960×600 and scaled to fit ---------- */
+  .fit { width: 100%; max-width: 960px; position: relative; }
+  .scaler { width: 960px; height: 600px; transform-origin: top left; position: absolute; top: 0; left: 0; }
+
+  .stage {
+    position: relative; width: 960px; height: 600px; border-radius: 18px; overflow: hidden;
+    background:
+      radial-gradient(1100px 560px at 12% 115%, #c86a48 0%, transparent 55%),
+      radial-gradient(900px 520px at 92% -15%, #3a3f93 0%, transparent 60%),
+      radial-gradient(640px 480px at 62% 62%, #6a3a69 0%, transparent 70%),
+      #1a1430;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.07), 0 40px 90px -30px rgba(0,0,0,.7);
+    user-select: none; -webkit-user-select: none;
+  }
+
+  /* ---------- menu bar ---------- */
+  .menubar {
+    position: absolute; inset: 0 0 auto 0; height: 32px; z-index: 40;
+    display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
+    background: rgba(22, 16, 34, .38);
+    backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    font-size: 13px; font-weight: 500; letter-spacing: -.005em;
+  }
+  .mb-left, .mb-right { display: flex; align-items: center; gap: 18px; }
+  .mb-left .mark { width: 13px; height: 13px; border-radius: 4px; background: rgba(255,255,255,.9); }
+  .app-name { position: relative; font-weight: 700; min-width: 84px; height: 16px; }
+  .app-name span { position: absolute; left: 0; top: 0; white-space: nowrap; transition: opacity .25s, transform .35s var(--ease-out), filter .25s; }
+  .app-name span.out { opacity: 0; transform: translateY(-5px); filter: blur(3px); }
+  .mb-dim { opacity: .82; font-weight: 500; }
+  .mb-right svg { display: block; opacity: .9; }
+  .clock { font-variant-numeric: tabular-nums; }
+
+  /* ---------- spaces ---------- */
+  .spaces { position: absolute; inset: 0; will-change: transform; }
+  .space { position: absolute; top: 0; width: 960px; height: 600px; }
+  .space[data-i="1"] { left: 1000px; }
+  .space-dots { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 5; }
+  .space-dots i { width: 6px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.35); transition: width .35s var(--ease-out), background .25s; }
+  .space-dots i.on { width: 18px; background: rgba(255,255,255,.9); }
+
+  /* ---------- terminal window (Claude Code) ---------- */
+  .win { position: absolute; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 24px 60px -12px rgba(0,0,0,.55); }
+  .titlebar { height: 34px; display: flex; align-items: center; padding: 0 13px; position: relative; }
+  .lights { display: flex; gap: 8px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; }
+  .lights i:nth-child(1) { background: #ff5f57; } .lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+  .win-title { position: absolute; left: 0; right: 0; text-align: center; font-size: 12px; font-weight: 600; pointer-events: none; }
+
+  .term { left: 110px; top: 62px; width: 740px; height: 478px; background: #151414; }
+  .term .titlebar { background: #1d1c1b; border-bottom: 1px solid rgba(255,255,255,.05); }
+  .term .win-title { color: rgba(255,255,255,.5); }
+  .t-body { position: absolute; top: 34px; bottom: 0; left: 0; right: 0; padding: 14px 18px 14px; display: flex; flex-direction: column; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: #d8d4cf; }
+  .t-log { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+  .l { white-space: pre-wrap; word-break: break-word; animation: line-in .28s var(--ease-out) both; }
+  @keyframes line-in { from { opacity: 0; transform: translateY(4px); } }
+  .l + .l-tool, .l + .l-say, .l + .l-user, .l + .l-perm { margin-top: 8px; }
+  .welcome { border: 1px solid rgba(217,119,87,.55); border-radius: 8px; padding: 8px 12px; margin-bottom: 4px; align-self: flex-start; animation: none; }
+  .welcome b { color: var(--accent); }
+  .dim { color: rgba(255,255,255,.42); }
+  .l-user { background: rgba(255,255,255,.06); border-radius: 6px; padding: 3px 8px; color: #f0ece8; align-self: flex-start; }
+  .l-tool .dot { color: var(--green); }
+  .l-tool b { color: #f3efe9; font-weight: 600; }
+  .l-tool .arg { color: rgba(255,255,255,.6); }
+  .l-res { color: rgba(255,255,255,.55); padding-left: 14px; }
+  .add { color: #7fd6a4; } .del { color: #ef8e8e; }
+  .l-say .dot { color: #f3efe9; }
+  .l-perm { border: 1px solid rgba(242,178,82,.6); border-radius: 8px; padding: 8px 12px; }
+  .l-perm .h { color: var(--amber); font-weight: 600; }
+  .l-perm .cmd { color: #f3efe9; margin: 2px 0 6px; }
+  .opts { display: flex; gap: 8px; margin-top: 6px; }
+  .opts button { font-family: var(--mono); font-size: 12px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 3px 10px; cursor: pointer; transition: background .15s, transform .1s; }
+  .opts button:hover { background: rgba(255,255,255,.12); }
+  .opts button:active { transform: scale(.97); }
+  .opts button.yes { border-color: rgba(242,178,82,.6); color: var(--amber); }
+  .t-spin { height: 22px; color: var(--accent); display: flex; align-items: center; gap: 8px; transition: opacity .2s; }
+  .t-spin .s-char { width: 1ch; display: inline-block; text-align: center; }
+  .t-spin .s-meta { color: rgba(255,255,255,.4); }
+  .t-spin.hide { opacity: 0; }
+  .t-input { border: 1px solid rgba(255,255,255,.16); border-radius: 8px; padding: 6px 10px; margin-top: 6px; color: #f0ece8; min-height: 33px; }
+  .t-input .ph { color: rgba(255,255,255,.3); }
+  .caret { display: inline-block; width: 7px; height: 14px; vertical-align: -2px; background: rgba(255,255,255,.7); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- second space: a light moodboard app ---------- */
+  .mood { left: 150px; top: 74px; width: 660px; height: 450px; background: #f3f1ec; }
+  .mood .titlebar { background: #e9e6df; border-bottom: 1px solid rgba(0,0,0,.06); }
+  .mood .win-title { color: rgba(0,0,0,.5); }
+  .tiles { position: absolute; top: 34px; left: 0; right: 0; bottom: 0; padding: 18px; display: grid; grid-template-columns: 1.3fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 12px; }
+  .tiles i { border-radius: 10px; }
+  .tiles i:nth-child(1) { grid-row: span 2; background: linear-gradient(160deg, #e9b796, #c86a48 70%, #8c3f2c); }
+  .tiles i:nth-child(2) { background: linear-gradient(140deg, #cfd3f3, #6f76c9); }
+  .tiles i:nth-child(3) { background: #262322; }
+  .tiles i:nth-child(4) { background: linear-gradient(200deg, #efe4cf, #d8c29a); }
+  .tiles i:nth-child(5) { background: linear-gradient(120deg, #a7d8bf, #4d9b7c); }
+
+  /* ---------- the notch ---------- */
+  .notch-svg { position: absolute; top: 0; left: 0; width: 960px; height: 320px; z-index: 50; pointer-events: none; overflow: visible; }
+  .notch-svg path { fill: #000; }
+  .notch {
+    position: absolute; top: 0; left: 387px; width: 186px; height: 32px; z-index: 51;
+    overflow: hidden; outline: none; border-radius: 0 0 10px 10px; color: #fff;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .notch:focus-visible { box-shadow: 0 0 0 2px rgba(217,119,87,.9); }
+  .notch[data-state="idle"] { pointer-events: none; }
+
+  .wing { position: absolute; top: 0; height: 32px; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity .18s; white-space: nowrap; }
+  .notch:not([data-state="idle"]) .wing { opacity: 1; transition: opacity .3s .1s; }
+  .wing-l { left: 14px; gap: 7px; }
+  .wing-r { right: 13px; width: 70px; justify-content: flex-end; }
+  .w-clock { font-size: 11.5px; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.5); letter-spacing: .01em; }
+  .w-step, .w-verbs { position: absolute; right: 0; top: 0; height: 32px; display: flex; align-items: center; transition: opacity .2s, transform .35s var(--ease-out), filter .2s; }
+  .w-step { font-size: 11.5px; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.4); }
+  .w-verbs { width: 70px; }
+  .wv { position: absolute; right: 0; font-size: 11.5px; font-weight: 600; letter-spacing: -.005em; animation: wv-in .35s var(--ease-out) both; }
+  .wv.tone-wait { color: var(--amber); } .wv.tone-done { color: var(--green); }
+  .wv.leaving { animation: row-out .2s ease forwards; }
+  @keyframes wv-in { from { opacity: 0; transform: translateY(6px); filter: blur(3px); } }
+  /* compact + question: the verb sits in the right wing. Peek / open: step progress takes its place. */
+  .notch[data-state="compact"] .w-step, .notch[data-state="alert"] .w-step { opacity: 0; transform: translateY(-5px); filter: blur(3px); }
+  .notch[data-state="live"] .w-verbs, .notch[data-state="expanded"] .w-verbs { opacity: 0; transform: translateY(5px); filter: blur(3px); }
+
+  .glyph { width: 22px; height: 22px; overflow: visible; color: var(--accent); transition: color .45s ease; flex: none; }
+  .glyph line { stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; }
+  .glyph .orbit { fill: currentColor; }
+  .glyph .check { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 20; stroke-dashoffset: 20; transition: stroke-dashoffset .5s var(--ease-out) .15s; }
+  .glyph.is-done .check { stroke-dashoffset: 0; }
+
+  .layer {
+    position: absolute; left: 50%; top: 0;
+    opacity: 0; filter: blur(6px); transform: translateX(-50%) translateY(-6px) scale(.97); transform-origin: 50% 0;
+    transition: opacity .14s ease, filter .14s ease, transform .14s ease;
+    pointer-events: none;
+  }
+  .layer.on {
+    opacity: 1; filter: blur(0); transform: translateX(-50%);
+    transition: opacity .3s var(--ease-out) .08s, filter .3s var(--ease-out) .08s, transform .45s var(--ease-out) .08s;
+    pointer-events: auto;
+  }
+
+  /* live row */
+  .live { top: 32px; width: 360px; height: 38px; padding: 0 18px 6px; }
+  .row-wrap { position: relative; height: 100%; }
+  .row { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .row.leaving { animation: row-out .2s ease forwards; }
+  @keyframes row-out { to { opacity: 0; transform: translateY(-7px); filter: blur(4px); } }
+  .verb { font-size: 13px; font-weight: 600; letter-spacing: -.01em; flex: none; }
+  .tone-wait .verb { color: var(--amber); }
+  .tone-done .verb { color: var(--green); }
+  .detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; color: rgba(255,255,255,.62); margin-left: -6px; padding-left: 8px; }
+  .detail.mono { font-family: var(--mono); font-size: 11.5px; }
+  .detail.fade { text-overflow: clip; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 8px, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(90deg, transparent 0, #000 8px, #000 calc(100% - 22px), transparent); }
+  .detail .in { display: inline; }
+  .detail.fade .in { display: inline-block; will-change: transform; }
+  .meta { flex: none; font-size: 12px; color: rgba(255,255,255,.45); font-variant-numeric: tabular-nums; display: flex; justify-content: flex-end; align-items: center; }
+  .ch { display: inline-block; white-space: pre; animation: ch-in .34s var(--ease-out) both; }
+  @keyframes ch-in { from { opacity: 0; filter: blur(3px); transform: translateY(4px); } }
+  .dots i { font-style: normal; animation: dot 1.2s infinite both; }
+  .dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+  @keyframes dot { 0%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+  /* rolling digits */
+  .odo { display: inline-flex; height: 1.3em; line-height: 1.3em; overflow: hidden; color: rgba(255,255,255,.88); font-weight: 500; }
+  .odo-col { display: block; width: 1ch; height: 1.3em; overflow: hidden; transition: width .4s var(--ease-out), opacity .3s ease; }
+  .odo-col.lead { width: 0; opacity: 0; }
+  .odo-strip { display: block; white-space: pre; will-change: transform; }
+
+  /* expanded panel */
+  .panel { top: 38px; width: 420px; padding: 4px 20px 0; }
+  .p-prompt { font-size: 12px; color: rgba(255,255,255,.4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .p-now { margin-top: 10px; font-size: 14px; line-height: 1.4; font-weight: 600; letter-spacing: -.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 39px; }
+  .p-now .pd { font-weight: 400; color: rgba(255,255,255,.66); }
+  .p-now .pd.mono { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+  .p-bar { margin-top: 12px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; }
+  .p-bar i { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); transition: transform .6s var(--ease-out), background .4s; border-radius: 2px; }
+  .p-hist { list-style: none; margin: 12px 0 0; padding: 0; height: 66px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+  .p-hist li { font-size: 12px; color: rgba(255,255,255,.5); display: flex; gap: 8px; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .p-hist li.new { animation: line-in .35s var(--ease-out) both; }
+  .p-hist li svg { flex: none; color: var(--green); }
+  .p-foot { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; }
+  .p-step { font-size: 12px; color: rgba(255,255,255,.4); font-variant-numeric: tabular-nums; }
+  .pill {
+    font-size: 12px; font-weight: 600; border: 0; border-radius: 999px; padding: 7px 13px; cursor: pointer;
+    background: rgba(255,255,255,.1); color: #fff; transition: background .15s, transform .12s var(--ease-out);
+  }
+  .pill:hover { background: rgba(255,255,255,.16); }
+  .pill:active { transform: scale(.96); }
+  .pill.primary { background: #fff; color: #000; }
+  .pill.primary:hover { background: #e9e9e9; }
+  .pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* permission alert */
+  /* question: one row — the command, then the two answers */
+  .alert { top: 32px; width: 380px; height: 44px; padding: 0 9px 6px 16px; display: flex; align-items: center; gap: 6px; }
+  .a-cmd { color: rgba(255,255,255,.82); white-space: nowrap; }
+  .a-cmd .k { color: var(--amber); }
+  .pill.sm { font-size: 11.5px; padding: 5px 11px; flex: none; }
+
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ---------- controls under the stage ---------- */
+  .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
+  .seg { position: relative; display: flex; background: rgba(255,255,255,.06); border-radius: 999px; padding: 3px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+  .seg button { position: relative; z-index: 1; border: 0; background: none; padding: 8px 16px; font-size: 13px; font-weight: 500; color: rgba(255,255,255,.55); cursor: pointer; border-radius: 999px; transition: color .2s; }
+  .seg button[aria-pressed="true"] { color: #fff; }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .seg .thumb { position: absolute; top: 3px; bottom: 3px; left: 0; border-radius: 999px; background: rgba(255,255,255,.12); transition: transform .45s var(--ease-out), width .45s var(--ease-out); }
+  .seg button.nudge::after { content: ""; position: absolute; top: 7px; right: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: nudge 1.6s ease-in-out infinite; }
+  @keyframes nudge { 50% { opacity: .3; transform: scale(.7); } }
+  .ctl { border: 0; background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); border-radius: 999px; padding: 9px 16px; font-size: 13px; color: rgba(255,255,255,.75); cursor: pointer; transition: background .15s, transform .12s; }
+  .ctl:hover { background: rgba(255,255,255,.1); }
+  .ctl:active { transform: scale(.97); }
+  .ctl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .hint { width: 100%; text-align: center; font-size: 12px; color: rgba(255,255,255,.35); }
+  kbd { font-family: var(--sans); font-size: 11px; padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,.08); color: rgba(255,255,255,.6); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ch, .l, .p-hist li.new { animation: none !important; }
+    .glyph.rm:not(.is-done) { animation: rm-pulse 1.8s ease-in-out infinite; }
+    @keyframes rm-pulse { 50% { opacity: .55; } }
+    .layer, .layer.on { transform: translateX(-50%) !important; filter: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="fit" id="fit">
+  <div class="scaler" id="scaler">
+    <div class="stage" id="stage">
+
+      <div class="spaces" id="spaces">
+        <!-- Space 1: Claude Code in a terminal -->
+        <div class="space" data-i="0">
+          <div class="win term" aria-label="Claude Code terminal">
+            <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><div class="win-title">claude — ~/acme-site</div></div>
+            <div class="t-body">
+              <div class="t-log" id="log"><div id="logInner" style="display:flex;flex-direction:column"></div></div>
+              <div class="t-spin hide" id="spin"><span class="s-char" id="spinChar">✻</span><span id="spinText">Pondering…</span><span class="s-meta" id="spinMeta"></span></div>
+              <div class="t-input" id="input"><span class="dim">&gt; </span><span id="inputText"></span><span class="caret"></span></div>
+            </div>
+          </div>
+        </div>
+        <!-- Space 2: somewhere else entirely -->
+        <div class="space" data-i="1">
+          <div class="win mood" aria-hidden="true">
+            <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><div class="win-title">Pricing — Moodboard</div></div>
+            <div class="tiles"><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="menubar">
+        <div class="mb-left">
+          <div class="mark"></div>
+          <div class="app-name" id="appName"><span>Terminal</span><span class="out">Moodboard</span></div>
+          <span class="mb-dim">File</span><span class="mb-dim">Edit</span><span class="mb-dim">View</span><span class="mb-dim">Window</span>
+        </div>
+        <div class="mb-right">
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 11.2 1.1 4.3a9.8 9.8 0 0 1 13.8 0L8 11.2Z" fill="#fff"/></svg>
+          <svg width="24" height="12" viewBox="0 0 24 12" fill="none"><rect x=".5" y=".5" width="20" height="11" rx="3.5" stroke="#fff" opacity=".5"/><rect x="2" y="2" width="14" height="8" rx="2" fill="#fff"/><rect x="21.8" y="4" width="1.6" height="4" rx=".8" fill="#fff" opacity=".5"/></svg>
+          <span class="clock" id="clock">9:41</span>
+        </div>
+      </div>
+
+      <div class="space-dots" id="dots"><i class="on"></i><i></i></div>
+
+      <!-- The notch: an SVG path for the true shape, an HTML box on top for content -->
+      <svg class="notch-svg" viewBox="0 0 960 320" aria-hidden="true"><path id="notchPath"/></svg>
+      <div class="notch" id="notch" data-state="idle" role="button" tabindex="-1" aria-label="Claude Code activity" aria-expanded="false">
+        <div class="wing wing-l">
+          <svg class="glyph" id="glyph" viewBox="-12 -12 24 24" aria-hidden="true">
+            <g id="rays"></g>
+            <circle class="orbit" id="orbit" r="1.7" opacity="0"/>
+            <path class="check" d="M-6 .5-2 4.5 6-4"/>
+          </svg>
+          <span class="w-clock" id="timer">0:00</span>
+        </div>
+        <div class="wing wing-r"><span class="w-verbs" id="wVerbs"></span><span class="w-step" id="wStep"></span></div>
+
+        <div class="layer live" id="live"><div class="row-wrap" id="rowWrap"></div></div>
+
+        <div class="layer panel" id="panel">
+          <div class="p-prompt" id="pPrompt"></div>
+          <div class="p-now" id="pNow"></div>
+          <div class="p-bar"><i id="pBar"></i></div>
+          <ol class="p-hist" id="pHist"></ol>
+          <div class="p-foot"><span class="p-step" id="pStep"></span><button class="pill" id="pOpen" tabindex="-1">Open Claude Code</button></div>
+        </div>
+
+        <div class="layer alert" id="alert">
+          <span class="detail mono a-cmd" id="aCmdBox"><span class="in" id="aCmd"></span></span>
+          <button class="pill sm" data-act="deny" tabindex="-1">Deny</button>
+          <button class="pill sm primary" data-act="allow" tabindex="-1">Allow</button>
+        </div>
+      </div>
+
+      <div class="sr" aria-live="polite" id="announce"></div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="seg" id="seg">
+    <span class="thumb" id="thumb"></span>
+    <button data-space="0" aria-pressed="true">Claude Code</button>
+    <button data-space="1" aria-pressed="false" class="nudge">Other space</button>
+  </div>
+  <button class="ctl" id="restart">Restart run</button>
+  <div class="hint"><kbd>←</kbd> <kbd>→</kbd> switch spaces &nbsp;·&nbsp; hover the notch to peek &nbsp;·&nbsp; click to open &nbsp;·&nbsp; <kbd>Esc</kbd> to close</div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s, r = document) => r.querySelector(s);
+  const mq = matchMedia('(prefers-reduced-motion: reduce)');
+  let reduce = mq.matches;
+  mq.addEventListener?.('change', e => { reduce = e.matches; });
+
+  /* ================================================================
+     Fit the 960×600 stage to the available width
+     ================================================================ */
+  const fitEl = $('#fit'), scaler = $('#scaler');
+  function fit() {
+    const s = Math.min(1, fitEl.clientWidth / 960);
+    scaler.style.transform = `scale(${s})`;
+    fitEl.style.height = 600 * s + 'px';
+  }
+  new ResizeObserver(fit).observe(fitEl);
+  fit();
+
+  /* ================================================================
+     Springs — interruptible by nature: retargeting keeps position
+     and velocity, so the motion never jumps.
+     Config: k = stiffness, c = damping. ζ = c / (2√k).
+     ================================================================ */
+  class Spring {
+    constructor(v, k = 400, c = 40) { this.v = v; this.t = v; this.vel = 0; this.k = k; this.c = c; }
+    to(t, k, c) { this.t = t; if (k) { this.k = k; this.c = c; } }
+    snap() { this.v = this.t; this.vel = 0; }
+    step(dt) { const a = -this.k * (this.v - this.t) - this.c * this.vel; this.vel += a * dt; this.v += this.vel * dt; }
+    get rest() { return Math.abs(this.v - this.t) < 0.02 && Math.abs(this.vel) < 0.02; }
+  }
+
+  /* ================================================================
+     Notch geometry
+     ================================================================ */
+  const CX = 480, SH = 7; // centre x, concave shoulder radius
+  const DIMS = {
+    idle:     { w: 186, h: 32,  r: 10 },  // the hardware
+    compact:  { w: 344, h: 32,  r: 10 },  // menu-bar height only: covers nothing of your work
+    live:     { w: 360, h: 70,  r: 22 },  // peek (hover): one line of live text
+    expanded: { w: 420, h: 280, r: 30 },  // open (click): the full picture
+    alert:    { w: 380, h: 76,  r: 22 },  // question: one row, the one time it opens itself
+  };
+  const sw = new Spring(186), sh = new Spring(32), sr = new Spring(10);
+  const sx = new Spring(0); // spaces track
+
+  // The true MacBook notch outline: concave fillets where it meets the top edge,
+  // straight sides, convex bottom corners. Drawn fresh each frame from the springs,
+  // so the corners never distort the way a scale() transform would.
+  function notchPath(w, h, r) {
+    const x0 = CX - w / 2, x1 = CX + w / 2;
+    r = Math.max(0, Math.min(r, h - SH, w / 2));
+    return `M${x0 - SH},0A${SH},${SH} 0 0 1 ${x0},${SH}L${x0},${h - r}A${r},${r} 0 0 0 ${x0 + r},${h}` +
+           `L${x1 - r},${h}A${r},${r} 0 0 0 ${x1},${h - r}L${x1},${SH}A${SH},${SH} 0 0 1 ${x1 + SH},0Z`;
+  }
+
+  /* ================================================================
+     The glyph — an 8-ray spark that moves differently per kind of work
+     ================================================================ */
+  const raysG = $('#rays'), orbit = $('#orbit'), glyph = $('#glyph');
+  const VAR = [1, .8, .94, .76, 1, .84, .9, .78]; // organic, uneven ray lengths
+  const INNER = 2.1;
+  const rays = VAR.map(() => {
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    raysG.appendChild(l); return l;
+  });
+  const G = { len: VAR.map(() => 8), op: VAR.map(() => 1), rot: 0, rotV: 0, orb: 0, mode: 'think', t: 0 };
+
+  function rayTarget(mode, t, i) {
+    const a = i / 8;
+    switch (mode) {
+      case 'think': // slow breathing wave travelling round the spark
+        return [5.8 + 3.4 * (0.5 + 0.5 * Math.sin(t * 2.2 - i * 0.785)), 1, 16];
+      case 'read': case 'search': { // a highlight sweeps round, like a scanner
+        const sweep = (t * (mode === 'read' ? 1.05 : 1.9)) % 1;
+        let d = Math.abs(a - sweep); d = Math.min(d, 1 - d);
+        const k = Math.exp(-((d * 7) ** 2));
+        return [4.6 + 5 * k, 0.35 + 0.65 * k, mode === 'search' ? 50 : 0];
+      }
+      case 'edit': { // rays strike one after another, like keys
+        const since = ((t * 7) % 8 - i + 8) % 8;
+        const k = Math.exp(-since * 0.9);
+        return [4.4 + 5.2 * k, 0.4 + 0.6 * k, 0];
+      }
+      case 'run': // short rays, a dot orbits the spark
+        return [4.3 + 0.5 * Math.sin(t * 6 + i), 0.85, -24];
+      case 'commit': { // rays gather to a point, then burst out
+        const p = (t % 1.6) / 1.6; let L;
+        if (p < .45) { const e = p / .45; L = 8.5 - 6 * e * e; }
+        else if (p < .58) { const e = (p - .45) / .13; L = 2.5 + 8.5 * (1 - (1 - e) ** 3); }
+        else { const e = (p - .58) / .42; L = 11 - 2.5 * e; }
+        return [L, 1, 0];
+      }
+      case 'wait': return [7 + 1.1 * Math.sin(t * 3.2), 0.78 + 0.22 * Math.sin(t * 3.2), 0];
+      case 'done': return [INNER, 0, 0];
+    }
+    return [8, 1, 0];
+  }
+
+  function glyphFrame(dt) {
+    G.t += dt;
+    const ease = 1 - Math.exp(-dt * 14);
+    let rv = 0;
+    for (let i = 0; i < 8; i++) {
+      let [L, o, r] = reduce && G.mode !== 'done' ? [8, 1, 0] : rayTarget(G.mode, G.t, i);
+      rv = r;
+      G.len[i] += (L * (G.mode === 'commit' ? 1 : VAR[i]) - G.len[i]) * ease;
+      G.op[i] += (o - G.op[i]) * ease;
+      const ang = (i / 8) * Math.PI * 2 - Math.PI / 2;
+      const c = Math.cos(ang), s = Math.sin(ang), L2 = Math.max(INNER + 0.01, G.len[i]);
+      const el = rays[i];
+      el.setAttribute('x1', (c * INNER).toFixed(2)); el.setAttribute('y1', (s * INNER).toFixed(2));
+      el.setAttribute('x2', (c * L2).toFixed(2));    el.setAttribute('y2', (s * L2).toFixed(2));
+      el.setAttribute('opacity', G.op[i].toFixed(3));
+    }
+    G.rotV += (rv - G.rotV) * ease;
+    G.rot = (G.rot + G.rotV * dt) % 360;
+    raysG.setAttribute('transform', `rotate(${G.rot.toFixed(2)})`);
+    G.orb += ((G.mode === 'run' && !reduce ? 1 : 0) - G.orb) * ease;
+    const oa = G.t * Math.PI * 2 * 0.85;
+    orbit.setAttribute('cx', (Math.cos(oa) * 9.4).toFixed(2));
+    orbit.setAttribute('cy', (Math.sin(oa) * 9.4).toFixed(2));
+    orbit.setAttribute('opacity', G.orb.toFixed(3));
+  }
+
+  function setGlyphMode(mode) {
+    G.mode = mode;
+    glyph.style.color = mode === 'wait' ? 'var(--amber)' : mode === 'done' ? 'var(--green)' : 'var(--accent)';
+    glyph.classList.toggle('is-done', mode === 'done');
+    glyph.classList.toggle('rm', reduce);
+  }
+
+  /* ================================================================
+     The scripted Claude Code run
+     ================================================================ */
+  const PROMPT = 'Redesign the pricing page and add a yearly billing toggle';
+  const P1 = 'src/app/(marketing)/pricing/_components/PricingTable.tsx';
+  const P2 = 'src/styles/tokens.css';
+  const P3 = 'src/app/(marketing)/pricing/_components/BillingToggle.tsx';
+  const COMMIT = 'feat(pricing): add yearly billing toggle';
+
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const tool = (n, a) => `<div class="l l-tool"><span class="dot">⏺</span> <b>${n}</b>(<span class="arg">${esc(a)}</span>)</div>`;
+  const res = (h) => `<div class="l l-res">⎿  ${h}</div>`;
+  const base = p => p.split('/').pop();
+
+  const STEPS = [
+    { mode: 'think', verb: 'Pondering', count: 842, unit: 'tokens', dur: 2600,
+      past: 'Thought for 3s', end: `<div class="l dim">✻ Thought for 3s</div>` },
+    { mode: 'read', verb: 'Reading', detail: P1, kind: 'path', count: 219, unit: 'lines', dur: 3000,
+      past: `Read ${base(P1)} · 219 lines`, start: tool('Read', P1), end: res('Read <b>219</b> lines') },
+    { mode: 'read', verb: 'Reading', detail: P2, kind: 'path', count: 88, unit: 'lines', dur: 2000,
+      past: `Read ${base(P2)} · 88 lines`, start: tool('Read', P2), end: res('Read <b>88</b> lines') },
+    { mode: 'search', verb: 'Searching', detail: '"billingCycle" across src/', kind: 'mono', count: 6, unit: 'files', dur: 2000,
+      past: 'Found billingCycle in 6 files', start: tool('Search', 'pattern: "billingCycle", path: "src"'), end: res('Found <b>6</b> files') },
+    { mode: 'think', verb: 'Planning', detail: 'Put a monthly / yearly toggle above the plan cards, shift every price live, and badge the 20% yearly saving', kind: 'text', count: 2310, unit: 'tokens', dur: 7400,
+      past: 'Planned 4 tasks',
+      end: `<div class="l l-tool"><span class="dot">⏺</span> <b>Update Todos</b></div>` +
+           res('☐ Build a BillingToggle component\n   ☐ Wire billingCycle into PricingTable\n   ☐ Add yearly saving badge\n   ☐ Run pricing tests') },
+    { mode: 'edit', verb: 'Editing', detail: P1, kind: 'path', count: 42, unit: 'additions', dur: 3400,
+      past: `Edited ${base(P1)} · +42 −9`, start: tool('Update', P1),
+      end: res('Updated with <span class="add">42 additions</span> and <span class="del">9 removals</span>') +
+           `<div class="l l-res"><span class="add">   + const price = cycle === "yearly" ? plan.monthly * 12 * 0.8 : plan.monthly;</span>\n<span class="del">   - const price = plan.monthly;</span></div>` },
+    { mode: 'edit', verb: 'Writing', detail: P3, kind: 'path', count: 64, unit: 'lines', dur: 2800,
+      past: `Created ${base(P3)} · 64 lines`, start: tool('Write', P3), end: res('Wrote <b>64</b> lines') },
+    { mode: 'run', verb: 'Running', detail: 'npm run test -- pricing', kind: 'mono', count: 12, unit: 'passed', dur: 3400,
+      past: 'Tests passed · 12 of 12', start: tool('Bash', 'npm run test -- pricing'), end: res('<span class="add">✓ 12 tests passed</span> (1.8s)') },
+    { mode: 'wait', verb: 'Needs permission', detail: `git commit -m "${COMMIT}"`, kind: 'mono', permission: true,
+      past: 'Commit approved', start: tool('Bash', `git commit -m "${COMMIT}"`) },
+    { mode: 'commit', verb: 'Committing', detail: COMMIT, kind: 'mono', count: 4, unit: 'files', dur: 2200,
+      past: 'Committed 4f2a91c', end: res(`[main 4f2a91c] ${esc(COMMIT)}\n   4 files changed, 131 insertions(+), 9 deletions(-)`) },
+    { mode: 'done', verb: 'Done', detail: '4 files changed', kind: 'text', done: true,
+      start: `<div class="l l-say"><span class="dot">⏺</span> Added a monthly / yearly toggle above the plans. Prices switch live, yearly shows a 20% saving badge, the toggle is keyboard accessible, and all 12 pricing tests pass. Committed as 4f2a91c.</div>` },
+  ];
+  const WORK = STEPS.length - 1;
+
+  /* ================================================================
+     App state
+     ================================================================ */
+  const run = { i: -1, status: 'idle', t0: 0, stepAt: 0, end: 0, timer: 0, showDone: false };
+  let space = 0, hover = false, pinned = false, notchState = 'idle', pendingHide = false;
+  const timers = new Set();
+  const later = (fn, ms) => { const id = setTimeout(() => { timers.delete(id); fn(); }, ms); timers.add(id); return id; };
+
+  const notch = $('#notch'), logInner = $('#logInner');
+  const layers = { live: $('#live'), expanded: $('#panel'), alert: $('#alert') };
+
+  /* ---------------- terminal ---------------- */
+  function term(html) { if (html) logInner.insertAdjacentHTML('beforeend', html); }
+  const SPIN = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
+  let spinI = 0;
+  setInterval(() => {
+    const s = STEPS[run.i];
+    const live = run.status === 'running' && s;
+    $('#spin').classList.toggle('hide', !live);
+    if (!live) return;
+    if (!reduce) $('#spinChar').textContent = SPIN[spinI++ % SPIN.length];
+    $('#spinText').textContent = s.verb + '…';
+    $('#spinMeta').textContent = `(${Math.floor((performance.now() - run.t0) / 1000)}s · esc to interrupt)`;
+  }, 110);
+
+  function typePrompt(done) {
+    const el = $('#inputText'); el.textContent = '';
+    let i = 0;
+    const tick = () => {
+      if (i > PROMPT.length) { later(() => { el.textContent = ''; done(); }, 380); return; }
+      el.textContent = PROMPT.slice(0, i++);
+      later(tick, reduce ? 0 : 22 + Math.random() * 26);
+    };
+    later(tick, 600);
+  }
+
+  /* ---------------- run engine ---------------- */
+  function startRun() {
+    timers.forEach(clearTimeout); timers.clear();
+    logInner.innerHTML =
+      `<div class="l welcome"><b>✻</b> Welcome to <b>Claude Code</b>\n<span class="dim">  cwd: ~/acme-site</span></div>`;
+    run.i = -1; run.status = 'typing'; run.showDone = false; pinned = false;
+    hist = []; $('#pHist').innerHTML = '';
+    apply();
+    typePrompt(() => {
+      term(`<div class="l l-user">&gt; ${esc(PROMPT)}</div>`);
+      run.status = 'running'; run.t0 = performance.now();
+      go(0);
+    });
+  }
+
+  function go(i) {
+    const s = STEPS[i];
+    run.i = i; run.stepAt = performance.now();
+    term(s.start);
+    setGlyphMode(s.mode);
+    if (s.permission) {
+      run.status = 'permission';
+      term(`<div class="l l-perm" id="tPerm"><div class="h">Bash command</div><div class="cmd">${esc(s.detail)}</div>Do you want to proceed?<div class="opts"><button class="yes" data-act="allow">❯ 1. Yes</button><button data-act="deny">2. No</button></div></div>`);
+    } else if (s.done) {
+      finish('done');
+    } else {
+      later(() => { term(s.end); pushHist(s.past); go(i + 1); }, s.dur);
+    }
+    onStep();
+  }
+
+  function finish(kind) {
+    run.status = kind; run.end = performance.now();
+    setGlyphMode(kind === 'done' ? 'done' : 'wait');
+    run.showDone = space !== 0;
+    if (run.showDone) scheduleHide();
+  }
+  function scheduleHide() {
+    later(() => { if (hover || pinned) { pendingHide = true; return; } run.showDone = false; apply(); }, 3600);
+  }
+
+  function resolvePermission(act) {
+    if (run.status !== 'permission') return;
+    const box = $('#tPerm');
+    if (box) { box.querySelector('.opts').outerHTML = `<div class="dim">${act === 'allow' ? '❯ Yes' : '❯ No'}</div>`; box.removeAttribute('id'); }
+    if (act === 'allow') {
+      pushHist(STEPS[run.i].past);
+      run.status = 'running';
+      go(run.i + 1);
+    } else {
+      term(res('<span class="del">Commit denied — nothing was committed.</span>'));
+      finish('denied');
+      onStep();
+    }
+  }
+
+  /* ---------------- what the notch shows right now ---------------- */
+  function display() {
+    const s = STEPS[run.i];
+    if (!s) return null;
+    if (run.status === 'denied') return { verb: 'Paused', detail: 'Commit denied · waiting for you', kind: 'text', tone: 'wait' };
+    if (s.done) return { verb: 'Done', detail: s.detail, kind: 'text', tone: 'done', metaText: fmtLong(run.end - run.t0) };
+    return { verb: s.verb, detail: s.detail || '', kind: s.kind || 'text', count: s.count, unit: s.unit, tone: s.permission ? 'wait' : '', think: s.mode === 'think' && !s.detail };
+  }
+
+  function desired() {
+    if (space === 0) return 'idle';
+    const level = pinned ? 'expanded' : hover ? 'live' : 'compact';
+    switch (run.status) {
+      case 'running': return level;
+      case 'permission': return 'alert';
+      case 'done': case 'denied': return run.showDone ? level : 'idle';
+    }
+    return 'idle';
+  }
+
+  function apply() {
+    const next = desired();
+    if (next === notchState) return;
+    const prev = notchState;
+    notchState = next;
+    const d = DIMS[next];
+    const grow = d.w * d.h > sw.t * sh.t;
+    // Growing: a touch of bounce (ζ≈0.78) — width leads, height follows a beat behind.
+    // Shrinking: critically damped (ζ≈1) — no wobble on the way home.
+    if (grow) { sw.to(d.w, 420, 32); sh.to(d.h, 300, 27); sr.to(d.r, 420, 32); }
+    else      { sw.to(d.w, 680, 52); sh.to(d.h, 760, 55); sr.to(d.r, 680, 52); }
+    if (reduce) { sw.snap(); sh.snap(); sr.snap(); }
+
+    notch.dataset.state = next;
+    for (const k in layers) layers[k].classList.toggle('on', k === next);
+    notch.setAttribute('aria-expanded', String(next === 'expanded' || next === 'alert'));
+    notch.tabIndex = next === 'idle' ? -1 : 0;
+    notch.querySelectorAll('button').forEach(b => {
+      b.tabIndex = (next === 'expanded' && b.id === 'pOpen') || (next === 'alert' && b.dataset.act) ? 0 : -1;
+    });
+    if (next === 'idle') { hover = false; pinned = false; }
+    // Peeking: replay the stream so the text visibly arrives.
+    if (next === 'live' && prev !== 'expanded') renderLive(true);
+    if (next === 'expanded') renderPanel();
+    kick();
+  }
+
+  function onStep() {
+    renderLive(false);
+    setWingVerb();
+    renderPanel();
+    const s = STEPS[run.i];
+    if (s && s.permission) setAlertCmd(s.detail);
+    $('#wStep').textContent = `${run.status === 'done' ? WORK : Math.min(run.i + 1, WORK)}/${WORK}`;
+    const d = display();
+    if (d && space !== 0) $('#announce').textContent = `Claude Code: ${d.verb}${d.detail ? ', ' + d.detail : ''}`;
+    apply();
+  }
+
+  /* compact wing verb: one word, swapped with a small rise */
+  const wVerbs = $('#wVerbs');
+  let wingKey = '';
+  function setWingVerb() {
+    const d = display(); if (!d) return;
+    const word = run.status === 'permission' ? 'Permission' : d.verb;
+    const key = word + d.tone;
+    if (key === wingKey) return; wingKey = key;
+    wVerbs.querySelectorAll('.wv').forEach(o => {
+      if (reduce || o.classList.contains('leaving')) return o.remove();
+      o.classList.add('leaving'); o.addEventListener('animationend', () => o.remove(), { once: true });
+    });
+    const el = document.createElement('span');
+    el.className = 'wv' + (d.tone ? ' tone-' + d.tone : '');
+    el.textContent = word;
+    wVerbs.appendChild(el);
+  }
+
+  /* ================================================================
+     Live row — streamed text + the long-text strategy
+     1. Paths: middle-truncate by folder, always keeping the filename.
+     2. Sentences / commands: if they overflow, glide through once
+        (pause → scroll → hold → fade back), with soft edge masks.
+     3. The expanded panel always shows the full text, wrapped.
+     ================================================================ */
+  const rowWrap = $('#rowWrap');
+  let liveKey = '', marquee = null, marqueeT = 0, odo = null;
+
+  function reveal(el, text, delay) {
+    el.textContent = '';
+    if (reduce) { el.textContent = text; return delay; }
+    const step = Math.min(15, 480 / Math.max(1, text.length));
+    const frag = document.createDocumentFragment();
+    [...text].forEach((c, i) => {
+      const sp = document.createElement('span');
+      sp.className = 'ch'; sp.textContent = c;
+      sp.style.animationDelay = (delay + i * step).toFixed(0) + 'ms';
+      frag.appendChild(sp);
+    });
+    el.appendChild(frag);
+    return delay + text.length * step + 340;
+  }
+
+  function fitPath(det, inner, path) {
+    inner.textContent = path;
+    if (det.scrollWidth <= det.clientWidth + 1) return path;
+    const parts = path.split('/');
+    for (let drop = 1; drop <= parts.length - 2; drop++) {
+      const cand = parts[0] + '/…/' + parts.slice(1 + drop).join('/');
+      inner.textContent = cand;
+      if (det.scrollWidth <= det.clientWidth + 1) return cand;
+    }
+    return '…/' + parts[parts.length - 1]; // last resort; CSS ellipsis covers anything longer
+  }
+
+  function renderLive(force) {
+    const d = display();
+    if (!d) return;
+    const key = [d.verb, d.detail, d.metaText, d.tone].join('|');
+    if (!force && key === liveKey) return;
+    liveKey = key;
+    if (marquee) { marquee.cancel(); marquee = null; }
+    clearTimeout(marqueeT);
+
+    rowWrap.querySelectorAll('.row').forEach(r => {
+      if (r.classList.contains('leaving')) return r.remove();
+      r.classList.add('leaving');
+      r.addEventListener('animationend', () => r.remove(), { once: true });
+      if (reduce) r.remove();
+    });
+
+    const row = document.createElement('div');
+    row.className = 'row' + (d.tone ? ' tone-' + d.tone : '');
+    row.innerHTML = `<span class="verb"></span><span class="detail${d.kind === 'text' ? '' : ' mono'}"><span class="in"></span></span><span class="meta"></span>`;
+    rowWrap.appendChild(row);
+    const verbEl = row.querySelector('.verb'), det = row.querySelector('.detail'), inner = row.querySelector('.in'), meta = row.querySelector('.meta');
+
+    // Meta first, at its final width, so the space left for the detail is stable.
+    odo = null;
+    if (d.metaText) meta.textContent = d.metaText;
+    else if (d.count != null) {
+      meta.innerHTML = `<span class="odo"></span><span>&nbsp;${d.unit}</span>`;
+      odo = meta.querySelector('.odo');
+      buildOdo(odo, d.count);
+      meta.style.minWidth = meta.offsetWidth + 'px'; // reserve the final width up front
+      drawOdo(odo, liveCount(), 0);
+    }
+
+    let t = reveal(verbEl, d.verb, 0);
+    if (d.think) verbEl.insertAdjacentHTML('beforeend', '<span class="dots"><i>.</i><i>.</i><i>.</i></span>');
+    if (!d.detail) { det.style.display = 'none'; return; }
+
+    const shown = d.kind === 'path' ? fitPath(det, inner, d.detail) : d.detail;
+    inner.textContent = shown;
+    const overflow = det.scrollWidth - det.clientWidth;
+    t = reveal(inner, shown, Math.min(t, 140));
+    if (d.kind !== 'path' && overflow > 1) {
+      det.classList.add('fade');
+      if (!reduce) marqueeT = setTimeout(() => { marquee = startMarquee(det, inner); }, t);
+      else { det.classList.remove('fade'); }
+    }
+  }
+
+  function startMarquee(det, inner) {
+    const dist = inner.scrollWidth - det.clientWidth + 24;
+    if (dist <= 0) return;
+    const hold0 = 700, travel = dist / 64 * 1000, hold1 = 1300, fade = 260;
+    const total = hold0 + travel + hold1 + fade * 2;
+    const o = ms => ms / total;
+    return inner.animate([
+      { transform: 'translateX(0)', opacity: 1, offset: 0 },
+      { transform: 'translateX(0)', opacity: 1, offset: o(hold0), easing: 'cubic-bezier(.45,0,.4,1)' },
+      { transform: `translateX(${-dist}px)`, opacity: 1, offset: o(hold0 + travel) },
+      { transform: `translateX(${-dist}px)`, opacity: 1, offset: o(hold0 + travel + hold1) },
+      { transform: `translateX(${-dist}px)`, opacity: 0, offset: o(hold0 + travel + hold1 + fade) },
+      { transform: 'translateX(0)', opacity: 0, offset: o(hold0 + travel + hold1 + fade) + 0.0001 },
+      { transform: 'translateX(0)', opacity: 1, offset: 1 },
+    ], { duration: total, iterations: Infinity });
+  }
+
+  /* the question row: same long-text rule as the live row */
+  let alertAnim = null;
+  function setAlertCmd(cmd) {
+    const box = $('#aCmdBox'), inner = $('#aCmd');
+    if (alertAnim) { alertAnim.cancel(); alertAnim = null; }
+    inner.innerHTML = `<span class="k">$</span> ${esc(cmd)}`;
+    const over = box.scrollWidth - box.clientWidth > 1;
+    box.classList.toggle('fade', over && !reduce);
+    if (over && !reduce) setTimeout(() => { alertAnim = startMarquee(box, inner); }, 500);
+  }
+
+  /* rolling digits — readable while it climbs.
+     The count advances in whole numbers, at most ~9 times a second, so every value
+     is on screen long enough to read. Each digit wheel then eases to its new digit,
+     always rolling forward (9 → 0 continues down into the extra 0, never rewinds).
+     No blur: the number is the point. */
+  function buildOdo(el, max) {
+    const n = String(Math.max(0, Math.floor(max))).length;
+    el.innerHTML = '';
+    el._cols = [];
+    el._n = null; el._at = 0;
+    for (let i = 0; i < n; i++) {
+      const col = document.createElement('span'); col.className = 'odo-col';
+      col.innerHTML = '<span class="odo-strip">0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n0</span>';
+      col._p = null;
+      el.appendChild(col); el._cols.push(col);
+    }
+  }
+  function drawOdo(el, v, dt) {
+    const now = performance.now(), n = Math.round(v);
+    if (el._n === null || (n !== el._n && now - el._at > 110)) { el._n = n; el._at = now; }
+    const digits = String(el._n).padStart(el._cols.length, '0');
+    const sig = String(el._n).length;
+    const ease = reduce || !dt ? 1 : 1 - Math.exp(-dt * 11); // ~300ms glide per digit
+    el._cols.forEach((col, i) => {
+      const d = +digits[i];
+      if (col._p === null) col._p = d;
+      const dist = (d - col._p + 10) % 10;     // forward distance only
+      col._p += dist < 0.002 ? dist : dist * ease;
+      if (col._p >= 10) col._p -= 10;
+      col.firstChild.style.transform = `translateY(${(-col._p * 1.3).toFixed(4)}em)`;
+      col.classList.toggle('lead', i < el._cols.length - sig);
+    });
+  }
+  function liveCount() {
+    const s = STEPS[run.i];
+    if (!s || s.count == null) return 0;
+    if (run.status !== 'running') return s.count;
+    const p = Math.min(1, (performance.now() - run.stepAt) / (s.dur * 0.9));
+    return (1 - (1 - p) ** 2) * s.count; // a gentler ease-out than before, spread over more of the step
+  }
+
+  /* ---------------- expanded panel ---------------- */
+  let hist = [];
+  const CHECK = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6.2 5 8.6l4.6-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function pushHist(text) {
+    hist.push(text);
+    const li = document.createElement('li');
+    li.className = 'new'; li.innerHTML = CHECK + `<span>${esc(text)}</span>`;
+    const ol = $('#pHist'); ol.appendChild(li);
+    while (ol.children.length > 3) ol.firstElementChild.remove();
+  }
+  function renderPanel() {
+    const d = display(); if (!d) return;
+    $('#pPrompt').textContent = '“' + PROMPT + '”';
+    const tone = d.tone === 'wait' ? 'var(--amber)' : d.tone === 'done' ? 'var(--green)' : '#fff';
+    $('#pNow').innerHTML = `<span style="color:${tone}">${esc(d.verb)}</span> ` +
+      (d.detail ? `<span class="pd${d.kind === 'text' ? '' : ' mono'}">${esc(d.detail)}</span>` : '');
+    const doneN = run.status === 'done' ? WORK : Math.min(run.i, WORK);
+    $('#pBar').style.transform = `scaleX(${doneN / WORK})`;
+    $('#pBar').style.background = run.status === 'done' ? 'var(--green)' : run.status === 'denied' ? 'var(--amber)' : '';
+    $('#pStep').textContent = run.status === 'done' ? `${WORK} steps · ${fmtLong(run.end - run.t0)}` : `Step ${Math.min(run.i + 1, WORK)} of ${WORK}`;
+  }
+
+  /* ================================================================
+     Frame loop — only runs while something is moving
+     ================================================================ */
+  const pathEl = $('#notchPath'), track = $('#spaces'), timerEl = $('#timer');
+  let raf = 0, last = 0;
+  const fmt = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  const fmtLong = ms => { const s = Math.round(ms / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const N = Math.max(1, Math.ceil(dt / (1 / 240)));
+    for (let i = 0; i < N; i++) { sw.step(dt / N); sh.step(dt / N); sr.step(dt / N); sx.step(dt / N); }
+    if (reduce) sx.snap();
+
+    const w = sw.v, h = Math.max(30, sh.v), r = Math.max(0, sr.v);
+    pathEl.setAttribute('d', notchPath(w, h, r));
+    notch.style.width = w + 'px'; notch.style.height = h + 'px';
+    notch.style.left = (CX - w / 2) + 'px';
+    notch.style.borderRadius = `0 0 ${r}px ${r}px`;
+    track.style.transform = `translate3d(${-sx.v}px,0,0)`;
+
+    const active = notchState !== 'idle';
+    if (active || !sw.rest) glyphFrame(dt);
+    if (run.t0) {
+      const t = fmt((run.status === 'done' || run.status === 'denied' ? run.end : now) - run.t0);
+      if (timerEl.textContent !== t) timerEl.textContent = t;
+    }
+    if (odo && run.status === 'running') drawOdo(odo, liveCount(), dt);
+
+    if (active || !(sw.rest && sh.rest && sr.rest && sx.rest)) raf = requestAnimationFrame(frame);
+    else raf = 0;
+  }
+  function kick() { if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } }
+
+  /* ================================================================
+     Spaces
+     ================================================================ */
+  const segBtns = [...document.querySelectorAll('#seg button')], thumb = $('#thumb');
+  function placeThumb() {
+    const b = segBtns[space];
+    thumb.style.width = b.offsetWidth + 'px';
+    thumb.style.transform = `translateX(${b.offsetLeft}px)`;
+  }
+  function switchSpace(i) {
+    i = Math.max(0, Math.min(1, i));
+    if (i === space) return;
+    space = i;
+    sx.to(i * 1000, 230, 30);
+    kick();
+    segBtns.forEach((b, j) => b.setAttribute('aria-pressed', String(j === i)));
+    segBtns[1].classList.remove('nudge');
+    placeThumb();
+    const names = $('#appName').children;
+    names[0].classList.toggle('out', i !== 0); names[1].classList.toggle('out', i !== 1);
+    document.querySelectorAll('#dots i').forEach((d, j) => d.classList.toggle('on', j === i));
+    if (i === 0) apply();
+    // Let the windows start sliding before the notch picks the work up.
+    else later(apply, reduce ? 0 : 170);
+  }
+
+  segBtns.forEach(b => b.addEventListener('click', () => switchSpace(+b.dataset.space)));
+  $('#restart').addEventListener('click', startRun);
+  addEventListener('resize', placeThumb);
+
+  /* ================================================================
+     Notch input — hover intent, click to pin, keyboard
+     ================================================================ */
+  let enterT = 0, leaveT = 0;
+  const canOpen = () => notchState === 'compact' || notchState === 'live' || notchState === 'expanded';
+  notch.addEventListener('pointerenter', e => {
+    if (e.pointerType !== 'mouse') return;
+    clearTimeout(leaveT);
+    if (hover || !canOpen()) return;
+    enterT = setTimeout(() => { hover = true; apply(); }, 110);
+  });
+  notch.addEventListener('pointerleave', e => {
+    if (e.pointerType !== 'mouse') return;
+    clearTimeout(enterT);
+    leaveT = setTimeout(() => {
+      hover = false; apply();
+      if (pendingHide) { pendingHide = false; scheduleHide(); }
+    }, 140);
+  });
+  notch.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (b) {
+      if (b.dataset.act) resolvePermission(b.dataset.act);
+      else if (b.id === 'pOpen') switchSpace(0);
+      return;
+    }
+    if (!canOpen()) return;
+    // Mouse: a click on a hover-opened notch pins it open. Touch: tap toggles.
+    if (hover && !pinned) pinned = true;
+    else { pinned = !pinned; if (!pinned) hover = false; }
+    apply();
+  });
+  notch.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target === notch && canOpen()) {
+      e.preventDefault(); pinned = notchState !== 'expanded'; if (!pinned) hover = false; apply();
+    }
+  });
+  logInner.addEventListener('click', e => {
+    const b = e.target.closest('button[data-act]');
+    if (b) resolvePermission(b.dataset.act);
+  });
+  document.addEventListener('pointerdown', e => {
+    if (pinned && !notch.contains(e.target)) { pinned = false; apply(); }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { pinned = false; hover = false; apply(); return; }
+    if (e.target.closest?.('.notch')) return;
+    if (e.key === 'ArrowLeft') switchSpace(space - 1);
+    if (e.key === 'ArrowRight') switchSpace(space + 1);
+  });
+
+  /* ================================================================
+     Clock + boot
+     ================================================================ */
+  function clock() {
+    const d = new Date();
+    $('#clock').textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  clock(); setInterval(clock, 15000);
+
+  setGlyphMode('think');
+  pathEl.setAttribute('d', notchPath(186, 32, 10));
+  (document.fonts?.ready || Promise.resolve()).then(() => { placeThumb(); startRun(); });
+})();
+</script>
+</body>
+</html>
